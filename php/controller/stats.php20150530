@@ -1,0 +1,154 @@
+<?php
+    class controller {
+	private $query;
+	// construncor
+	function controller() {
+	    include $_SESSION['CONF']['DIRS']['QUERY'].basename (__FILE__);
+	    $this->query = new query_controller();
+	}
+	    
+	public function def() {
+	    $result = "";
+
+                $pattern        = new pattern('stats/stats');
+
+		$command = "/usr/local/bin/show_peers.sh";
+		exec ($command, $out);
+
+
+		$callers = array();
+		for ($i = 1; $i < count($out)-1; $i++) {
+			$name = substr($out[$i], 0, 25);
+			if (strpos($name, "/") !== false)
+				$name = substr($name, 0, strpos($name, "/"));
+
+			$state = substr($out[$i], 105, 10);
+			if (strpos($state, " ") !== false)
+				$state = substr($state, 0, strpos($state, " "));
+
+			$callers[trim($name)] = trim($state);
+		}
+
+		$rowset = $this->getCallers(array_keys($callers));
+		$callersText = "";
+		foreach ($rowset as $row) {
+ 	               	$pattern2        = new pattern('stats/active');
+			$pattern2->set_var("NAME", $row['name']." ({$row['mark']})");
+			$pattern2->set_var("STATUS", $this->viewStatus($callers[$row['mark']]));
+        	      	$callersText .= $pattern2->result();
+		}
+
+		$pattern->set_var("CALLERS", $callersText);
+
+		$tasks = $this->query->currentTask();
+		$tasksText = "";
+		if (!empty($tasks) && count($tasks) > 0) {
+	               	$pattern2        = new pattern('stats/task');
+			$pattern2->set_var("CALLER", "<strong>Канал</strong>");
+			$pattern2->set_var("PRESS", "<strong>Отклики</strong>");
+			$pattern2->set_var("PROGRESS", "<strong>Прогресс обзвона</strong>");
+			$pattern2->set_var("PARAMS", "<strong>Параметры</strong>");
+        	      	$tasksText .= $pattern2->result();
+
+			foreach ($tasks as $t) {
+				$timeoff = date("Hi", strtotime("NOW {$t['timezone']}hour")) < str_replace(":", "", $t['timefrom']) || date("Hi", strtotime("NOW {$t['timezone']}hour")) > str_replace(":", "", $t['timeto'])? true: false;
+
+ 	               		$pattern2        = new pattern('stats/task');
+				$pattern2->set_var("CALLER", $this->_viewChannel($t['caller'], $rowset));
+				$pattern2->set_var("PRESS", $this->_viewCountPress($t['id'], $t['press']));
+				$pattern2->set_var("PROGRESS", $this->_viewStatus($t['total'], $t['send'], $timeoff));
+				$pattern2->set_var("PARAMS", $this->_viewParams($t['sms_enable'], $t['email_enable']));
+        	      		$tasksText .= $pattern2->result();
+			}
+		}
+		else
+               		$tasksText = "Нет запущенных процессов";
+
+		$pattern->set_var("TASKS", $tasksText);	
+
+                $result .= $pattern->result();
+
+	    return $result;
+	}
+
+	function getCallers ($callers) {
+		$temp = array();
+		$rowset = $this->query->getCallers("mark = '".implode("' or mark = '", $callers)."'");
+		foreach ($rowset as $row)
+			$temp[$row['mark']] = $row;
+		return $temp;
+	}
+
+	function viewStatus ($status) {
+		switch ($status) {
+			case "OK": return '<span class="label label-success">Включено</span>';
+			case "UNKNOWN": return '<span class="label label-danger">Выключен</span>';
+			case "Unmonitore": return '<span class="label label-default">Не мониторится</span>';
+			default: return '<span class="label label-warning">Неизвестно</span>';
+		}
+		return $status;
+	}
+
+        function _viewChannel($channel, $callers) {
+            $result = "";
+
+            foreach ($callers as $caller) {
+                if (in_array($caller['mark'], explode(",", $channel)) !== false)
+                    $result .= '<span class="label label-success">'.$caller['name'].'</span><br/>';
+            }
+
+            return $result;
+        }
+
+        function _viewCountPress ($id, $count) {
+		if ($count == 0)
+			return '<span class="label label-default"><span class="glyphicon glyphicon-bullhorn" aria-hidden="true" title="Информация о привлечении"></span>&nbsp;&nbsp;0</span>';
+		else {
+			$new = $this->query->getNewResponse($id);
+			return '<a href="/task/response/'.$id.'/interest" style="text-decoration: none" title="Показать отклики'.($new['total'] > 0? ". Есть новые отклики":"").'"><span class="label label-success"><span class="glyphicon glyphicon-bullhorn" aria-hidden="true" title="Информация о привлечении"></span>&nbsp;&nbsp;'.$count.($new['total'] > 0? "<sup class='blink'>+".$new['total']."</sup>": "").'</span></a>';
+		}
+        }
+
+        function _viewParams ($sms, $email) {
+		$result = "";
+
+		if ($sms == 0)
+			$result .= '<span class="label label-danger">SMS</span> ';
+		else
+			$result .= '<span class="label label-success">SMS</span> ';
+
+		if ($email == 0)
+			$result .= '<span class="label label-danger">Email</span>';
+		else
+			$result .= '<span class="label label-success">Email</span>';
+
+		return $result;
+        }
+
+        function _viewStatus($total, $send, $timeoff) {
+            $result = "";
+            if (is_null($total)) {
+                $result .= '<span class="label label-default">База не загружена</span>';
+            }
+            else {
+                $result .= '<div class="progress" style="margin-bottom: 0px">'."\n";
+
+                $result .= '<div class="progress-bar active progress-bar-success progress-bar-striped" role="progressbar" aria-valuenow="'.sprintf("%.2f", ($total == 0? 0: $send/$total*100)).'" aria-valuemin="0" aria-valuemax="100" style="width: '.sprintf("%.0f", ($total == 0? 0: $send/$total*100)).'%">'."\n";
+		if ($send/$total*100 > 40)
+               		$result .= sprintf("%.2f", ($total == 0? 0: $send/$total*100)).'%'.($timeoff? " <strong><span class='glyphicon glyphicon-off' aria-hidden='true'></span> Не активно</strong>": " <strong><span class='glyphicon glyphicon-thumbs-up' aria-hidden='true'></span> Процесс активен</strong>")."\n";
+                $result .= '</div>'."\n";
+                $result .= '<div class="progress-bar progress-bar-'.($timeoff? "danger": "dis").'" role="progressbar" aria-valuenow="'.sprintf("%.2f", ($total == 0? 0: $send/$total*100)).' aria-valuemin="0" aria-valuemax="100" style="width: '.sprintf("%.0f", ($total == 0? 0: ($total-$send)/$total*100)).'%">'."\n";
+		if ($send/$total*100 <= 40)
+                	$result .= sprintf("%.2f", ($total == 0? 0: $send/$total*100)).'%'.($timeoff? " <strong><span class='glyphicon glyphicon-off' aria-hidden='true'></span> Не активно</strong>": " <strong><span class='glyphicon glyphicon-thumbs-up' aria-hidden='true'></span> Процесс активен</strong>")."\n";
+                $result .= '</div>'."\n";
+
+
+                $result .= '</div>'."\n";
+            }
+            return $result;
+        }
+
+
+    }
+
+?>

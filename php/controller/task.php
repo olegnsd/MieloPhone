@@ -1,0 +1,821 @@
+<?php
+    class controller {
+	private $query;
+	private $count = 1000;
+	private $sipuniUser = '060957';
+	private $sipuniSecret = 'izp811apthk9be29';
+
+
+	// construncor
+	function controller() {
+	    include_once $_SESSION['CONF']['DIRS']['QUERY'].basename (__FILE__);
+	    $this->query = new query_controller();
+	}
+	    
+	public function getStatsSipuni($datefrom, $phone) {
+
+	    $user = $this->sipuniUser;
+	    $from = $datefrom;
+	    $to = date('d.m.Y');
+	    $type = '0';
+	    $state = '0';
+	    $tree = '';
+	    $fromNumber = '';
+	    $toNumber = $phone;
+	    $toAnswer = '';
+	    $anonymous = '1';
+	    $firstTime = '0';
+	    $secret = $this->sipuniSecret;
+	    $hashString = join('+', array($anonymous, $firstTime, $from, $fromNumber, $state, $to, $toAnswer, $toNumber, $tree, $type, $user, $secret));
+
+	    $hash = md5($hashString);
+
+	    $url = 'https://sipuni.com/api/statistic/export';
+	    $query = http_build_query(array(
+	        'anonymous' => $anonymous,
+	        'firstTime' => $firstTime,
+	        'from' => $from,
+	        'fromNumber' => $fromNumber,
+	        'state' => $state,
+	        'to' => $to,
+	        'toAnswer' => $toAnswer,
+	        'toNumber' => $toNumber,
+	        'tree' => $tree,
+	        'type' => $type,
+	        'user' => $user,
+	        'hash' => $hash,
+	    ));
+
+	    $ch = curl_init();
+	    curl_setopt($ch, CURLOPT_URL, $url);
+	    curl_setopt($ch, CURLOPT_POST, 1);
+	    curl_setopt($ch, CURLOPT_POSTFIELDS, $query);
+	    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+	    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+	    $output = curl_exec($ch);
+	    curl_close($ch);
+	
+	    $result = [];
+	    foreach(explode("\n", $output) as $k => $l)
+		if ($k != 0 && trim($l) != "")
+	    	    $result[] = explode(";", $l);
+
+	    return $result;
+	}
+
+	public function downloadSipuniFile($id) {
+		$hashString = join('+', array($id, $this->sipuniUser, $this->sipuniSecret));
+		$hash = md5($hashString);
+
+		$url = 'https://sipuni.com/api/statistic/record';
+		$query = http_build_query(array(
+		    'id' => $id,
+		    'user' => $this->sipuniUser,
+		    'hash' => $hash,
+		));
+
+		$ch = curl_init();
+		curl_setopt($ch, CURLOPT_URL, $url);
+		curl_setopt($ch, CURLOPT_POST, 1);
+		curl_setopt($ch, CURLOPT_POSTFIELDS, $query);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+		curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+		$output = curl_exec($ch);
+		curl_close($ch);
+
+		if ($output == "Call not found")  {
+		    return;
+		}
+
+		file_put_contents($_SESSION['CONF']['DIRS']['SIPUNI'].$id, $output);
+	}
+
+
+	public function def() {
+	    $result = "";
+
+	    if (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "getcall" && isset($_SESSION['PARAMS'][2])) {
+		if (file_exists($_SESSION['CONF']['DIRS']['SIPUNI'].$_SESSION['PARAMS'][2])) {
+		    header("Content-Disposition: attachment; filename={$_SESSION['PARAMS'][2]}.mp3");
+		    echo file_get_contents($_SESSION['CONF']['DIRS']['SIPUNI'].$_SESSION['PARAMS'][2]);
+		}
+		else
+		    echo "Файл не найден";
+		exit;
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "response" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+		if (isset($_SESSION['PARAMS'][3]) && $_SESSION['PARAMS'][3] == "more") {
+			$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+			if (!(!empty($task) && count($task)>0)) {
+		    		echo json_encode(array("success" => false, "end" => false, "result" => "Задачи не существует"));
+				exit;
+			}
+			else {
+				$listResponse = $this->query->getListResponse($_SESSION['PARAMS'][2], $_POST['page'], $this->count);
+
+				if (!empty($listResponse) && count($listResponse) > 0) {
+					$result = "";
+			    		foreach ($listResponse as $t) {
+						$pattern	= new pattern('task/response_row');
+		        			$pattern->set_var("USER", $t['name']);
+		        			$pattern->set_var("EMAIL", $t['email']);
+			        		$pattern->set_var("PHONE", $t['phone']);
+			        		$pattern->set_var("SEND", $this->_viewYesNo($t['send']));
+			        		$pattern->set_var("PRESS", $this->_viewYesNo($t['press']));
+		        			$pattern->set_var("ONLYPRESS", ($t['press'] == "Y"? ' class="onlypress"': ''));
+		        			$pattern->set_var("STATE", $this->_viewRingState($t['state']));
+		        			$pattern->set_var("LASTDATE", date("d.m.Y H:i:s", strtotime($t['datering'])));
+						$pattern->set_var("BUTTONS", ($t['press'] == "Y"? '<a class="inforing btn btn-xs btn-primary" data-toggle="modal" data-target="#infoRing" data-ringid="'.$t['id'].'" style="cursor: pointer"><span class="glyphicon glyphicon-bullhorn" aria-hidden="true" title="Информация о привлечении"></span>&nbsp;&nbsp;<span id="countInfo'.$t['id'].'">'.($t['total'] > 0? $t['total']: '').'</span></a>': ''));
+
+						$result	.= $pattern->result();
+			    		}
+					echo json_encode(array("success" => true, "end" => false, "result" => $result));
+					exit;
+				}
+				else {
+	    	    			echo json_encode(array("success" => false, "end" => true, "result" => ""));
+					exit;
+				}
+			}
+		}
+		else {
+			if (isset($_SESSION['PARAMS'][3]) && $_SESSION['PARAMS'][3] == "info") {
+				if (!isset($_SESSION['PARAMS'][4]) || !is_numeric($_SESSION['PARAMS'][4])) {
+					echo json_encode(array("success" => false, "result" => "Произошла ошибка, повторите попытку позже"));
+					exit;
+				}
+				else {
+					if (!$this->query->isUserTaskBase($_SESSION['AUTH']['id'], $_SESSION['PARAMS'][4])) {
+						echo json_encode(array("success" => false, "result" => "Произошла ошибка, повторите попытку позже"));
+						exit;
+					}
+					else {
+						$result = "";
+
+						$phone = $this->query->taskBase($_SESSION['PARAMS'][4]);
+						$info = $this->query->taskBaseInfo($_SESSION['PARAMS'][4]);
+
+						if (isset($_SESSION['PARAMS'][5]) && $_SESSION['PARAMS'][5] == "calls") {
+						    $result = "";
+						    $stats = $this->getStatsSipuni("", $phone['phone']);
+						    if (!empty($stats) && count($stats) > 0) {
+							$calls = "";
+
+							foreach ($stats as $s) {
+					                    $this->query->query("insert into calls (phone, date, filename) VALUES ('{$phone['phone']}', '".date("Y-m-d H:i:s", strtotime($c[2]))."', '{$c[11]}')");
+					                    $this->downloadSipuniFile($c[11]);
+							}
+						    }
+
+						    $stats = $this->query->getCalls($phone['phone']);
+						    if (!empty($stats) && count($stats) > 0) {
+							$calls = "";
+
+							foreach ($stats as $s) {
+					        	    $pattern	= new pattern('task/stats_row');
+							    $pattern->set_var("DATE", $s['date']);
+							    $pattern->set_var("ID", $s['filename']);
+							    $calls	.= $pattern->result();
+							}
+
+					        	$pattern	= new pattern('task/stats');
+							$pattern->set_var("CALLS", $calls);
+							$result	.= $pattern->result();
+						    }
+						    else {
+					        	$pattern	= new pattern('task/info');
+							$pattern->set_var("DATE", "");
+							$pattern->set_var("TEXT", "Нет информации о звонке в SipUni");
+							$result	.= $pattern->result();
+						    }
+
+
+						    echo json_encode(array("result" => $result));
+						    exit;
+						}
+
+
+						if (!empty($info) && count($info) > 0) {
+							foreach ($info as $i) {
+					        		$pattern	= new pattern('task/info');
+								$pattern->set_var("DATE", date("d.m.Y H:i:s", strtotime($i['datetime'])));
+								$pattern->set_var("TEXT", $i['text']);
+								$result	.= $pattern->result();
+							}
+						}
+						else {
+					        	$pattern	= new pattern('task/info');
+							$pattern->set_var("DATE", "");
+							$pattern->set_var("TEXT", "Нет информации");
+							$result	.= $pattern->result();
+						}
+
+						    $stats = $this->query->getCalls($phone['phone']);
+						    $statsText = "";
+						    if (!empty($stats) && count($stats) > 0) {
+							$calls = "";
+
+							foreach ($stats as $s) {
+					        	    $pattern	= new pattern('task/stats_row');
+							    $pattern->set_var("DATE", $s['date']);
+							    $pattern->set_var("ID", $s['filename']);
+							    $calls	.= $pattern->result();
+							}
+
+					        	$pattern	= new pattern('task/stats');
+							$pattern->set_var("CALLS", $calls);
+							$statsText	.= $pattern->result();
+						    }
+						    else {
+					        	$pattern	= new pattern('task/info');
+							$pattern->set_var("DATE", "");
+							$pattern->set_var("TEXT", "Нет информации о звонке в SipUni");
+							$statsText	.= $pattern->result();
+						    }
+
+
+					        $pattern	= new pattern('task/addinfo');
+						$pattern->set_var("ID", $_SESSION['PARAMS'][4]);
+						$pattern->set_var("STATS", $statsText);
+						$result	.= $pattern->result();
+
+
+
+/*
+*/
+
+						echo json_encode(array("success" => true, "phone" => $phone['phone'], "result" => $result));
+						exit;
+					}
+				}
+			}
+			if (isset($_SESSION['PARAMS'][3]) && $_SESSION['PARAMS'][3] == "addinfo") {
+				if (!isset($_SESSION['PARAMS'][4]) || !is_numeric($_SESSION['PARAMS'][4])) {
+					echo json_encode(array("success" => false, "result" => "Произошла ошибка, повторите попытку позже"));
+					exit;
+				}
+				else {
+					if (!$this->query->isUserTaskBase($_SESSION['AUTH']['id'], $_SESSION['PARAMS'][4])) {
+						echo json_encode(array("success" => false, "result" => "Произошла ошибка, повторите попытку позже"));
+						exit;
+					}
+					else {
+						$result = "";
+
+						$info = $this->query->addTaskBaseInfo($_SESSION['PARAMS'][4], $_POST['text']);
+
+						echo json_encode(array("success" => true, "phone" => $phone['phone'], "result" => "Информация успешно добавлена"));
+						exit;
+					}
+				}
+			}
+			else {
+				$task = $this->query->edit($_SESSION['PARAMS'][2]);
+				$callerInfo = $this->query->callerInfo($task['caller']);
+				$_SESSION['phone_timezone'] = $callerInfo['timezone'];
+
+				if (!(!empty($task) && count($task)>0))
+		    			header("Location: /task");
+
+				if (isset($_SESSION['PARAMS'][3]) && $_SESSION['PARAMS'][3] == "interest")
+					$listResponse = $this->query->getListResponseOnlyInterest($_SESSION['PARAMS'][2]);
+				else
+					$listResponse = $this->query->getListResponse($_SESSION['PARAMS'][2], 0, $this->count);
+
+				$interest = $this->query->getListResponseOnlyInterest($_SESSION['PARAMS'][2], 0, 1000000);
+
+	        		$pattern	= new pattern('task/response_header');
+				$pattern->set_var("CHECKED", (isset($_SESSION['PARAMS'][3]) && $_SESSION['PARAMS'][3] == "interest"? "CHECKED": ""));
+				$pattern->set_var("COUNT", (!empty($interest) && count($interest)>0? count($interest): "0"));
+				$result	.= $pattern->result();
+
+				if (!empty($listResponse) && count($listResponse) > 0) {
+		    			foreach ($listResponse as $t) {
+						$pattern	= new pattern('task/response_row');
+		        			$pattern->set_var("USER", $t['name']);
+		        			$pattern->set_var("EMAIL", $t['email']);
+		        			$pattern->set_var("PHONE", $t['phone']);
+		        			$pattern->set_var("SEND", $this->_viewYesNo($t['send']));
+		        			$pattern->set_var("PRESS", $this->_viewYesNo($t['press']));
+		        			$pattern->set_var("ONLYPRESS", ($t['press'] == "Y"? ' class="onlypress"': ''));
+		        			$pattern->set_var("STATE", $this->_viewRingState($t['state']));
+		        			$pattern->set_var("LASTDATE", ( $t['datering'] != ""? date("d.m.Y H:i:s", strtotime($t['datering'])): ""));
+						$pattern->set_var("BUTTONS", ($t['press'] == "Y"? '<a class="inforing btn btn-xs btn-primary" data-toggle="modal" data-target="#infoRing" data-ringid="'.$t['id'].'" style="cursor: pointer"><span class="glyphicon glyphicon-bullhorn" aria-hidden="true" title="Информация о привлечении"></span>&nbsp;&nbsp;<span id="countInfo'.$t['id'].'">'.($t['total'] > 0? $t['total']: '').'</span></a>': ''));
+						$result	.= $pattern->result();
+			    		}
+				}
+				else {
+		    	    		$pattern	= new pattern('task/response_nofound');
+			    		$result	.= $pattern->result();
+				}
+
+		        	$pattern	= new pattern('task/response_footer');
+				$pattern->set_var("ID", $_SESSION['PARAMS'][2]);
+				$pattern->set_var("HIDEMORE", count($listResponse) == $this->count? "": "hide");
+				$result	.= $pattern->result();
+			}
+		}
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "doubling" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+		$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+		if (!(!empty($task) && count($task)>0))
+		    header("Location: /task");
+
+		unset($task['id']);
+		unset($task['uid']);
+		unset($task['dateadd']);
+		unset($task['datestop']);
+		unset($task['state']);
+		$task['caller'] = explode(",", $task['caller']);
+		$id = $this->query->save($task);
+		$this->query->doublingBase($id, $_SESSION['PARAMS'][2]);
+		$this->query->updateTaskBase($id, $task['total']);
+
+		if (file_exists($_SESSION['CONF']['DIRS']['SOUNDS'].$_SESSION['PARAMS'][2].".wav"))
+		    copy($_SESSION['CONF']['DIRS']['SOUNDS'].$_SESSION['PARAMS'][2].".wav", $_SESSION['CONF']['DIRS']['SOUNDS'].$id.".wav");
+
+		header("Location: /task");
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "pause" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+		$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+		if (!(!empty($task) && count($task)>0))
+		    header("Location: /task");
+
+		$this->query->updateTaskState($task['id'], "pause");
+
+		header("Location: /task");
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "stop" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+		$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+		if (!(!empty($task) && count($task)>0))
+		    header("Location: /task");
+
+		$this->query->updateTaskState($task['id'], "stop");
+
+		header("Location: /task");
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "start" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+		$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+		if (!(!empty($task) && count($task)>0))
+		    header("Location: /task");
+
+		$this->query->updateTaskState($task['id'], "start");
+
+		header("Location: /task");
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "save") {
+#print_r($_FILES['file']);
+#echo '12123';exit;
+		$id = $this->query->save($_POST);
+
+		if ($_FILES['sound']['error'] == 0) {
+		    $tmp=$_FILES['sound']['tmp_name'];
+		    $tmp=`file $tmp|grep WAVE`;
+		    	    		    //print_r($tmp);
+		    if(!(preg_match("/WAVE audio, Microsoft PCM, 16 bit, mono 8000 Hz/",$tmp)))
+		    { 
+		echo "not wav file for asterisk . must be WAVE audio, Microsoft PCM, 16 bit, mono 8000 Hz "; exit -1;}
+
+		
+		    move_uploaded_file($_FILES['sound']['tmp_name'], $_SESSION['CONF']['DIRS']['SOUNDS'].$id.".wav");
+		}
+
+#print_r($_POST);
+		if ($_FILES['file']['error'] == 0 && $_POST['typebase'] == "file") {
+		    $this->query->deleteTaskBase($id);
+		    $fp = fopen($_FILES['file']['tmp_name'], "r");
+		    $count = 0;
+		    while (!feof($fp)) {
+			$data = explode(";", str_replace("\n", "", str_replace("\r", "", str_replace("\"", "", fgets($fp)))));
+#print_r($data);
+#echo '11123123121132';
+
+			if (count($data) < 3)
+			    continue;
+
+
+			$name = $data[0];
+			$phone = preg_replace( '/[^0-9]/', '', $data[1] );
+
+			if (strlen($phone) == 11 && (substr($phone, 0, 1) == "7" || substr($phone, 0, 1) == "8"))
+			    $phone = substr($phone, 1);
+			if (strlen($phone) == 13)
+			    $phone = substr($phone, 0, 2)."+". substr($phone, 2);
+
+			if (strlen($phone) != 10 && strlen($phone) != 14)
+			    continue;
+			$email = $data[2];
+			if($email != "" && !filter_var($email, FILTER_VALIDATE_EMAIL))
+			    continue;
+
+			$this->query->addBase($id, $name, $phone, $email);
+			$count++;
+		    }
+
+		    $this->query->updateTaskBase($id, $count); 	
+		}
+		elseif ($_POST['typebase'] == "autolist") {
+		    for ($phone = $_POST['range1']; $phone <= $_POST['range2']; $phone++) {
+			$this->query->addBase($id, "", $phone, "");
+		    }
+		    $this->query->updateTaskBase($id, $_POST['range2']-$_POST['range1']+1); 	
+		}
+
+		if(isset($_SESSION['PARAMS'][2]) && is_string($_SESSION['PARAMS'][2])){
+//				echo $_SESSION['PARAMS'][2];
+                return;
+        }else{
+           header("Location: /task");  
+        }
+#exit;
+		//header("Location: /task");
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "add") {
+	        $pattern	= new pattern('task/add');
+		$callers	= "";
+		foreach ($this->query->getCallerList() as $key => $caller) {
+		    if (in_array($caller['mark'], $_SESSION['AUTH']['caller']) !== false)
+		        $callers	.= "<label><input type='radio' value='{$caller['mark']}' name='caller' CHECKED>&nbsp;{$caller['name']}</label>&nbsp;&nbsp;&nbsp;";
+		}
+		$pattern->set_var("CALLERS", $callers);
+		$pattern->set_var("CLIENTS", $this->getClients($task['client_id']));
+		$result	.= $pattern->result();
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "edit" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+		$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+		if (!(!empty($task) && count($task)>0))
+		    header("Location: /task");
+
+	        $pattern	= new pattern('task/edit');
+		$callers	= "";
+		foreach (array("out" => "SipUni", "sadovikov-1" => "Мегафон") as $caller => $nameCaller) {
+		    if (in_array($caller, $_SESSION['AUTH']['caller']) !== false)
+		        $callers	.= "<input type='checkbox' value='{$caller}' name='caller[]' ".(in_array($caller, explode(",", $task['caller'])) !== false? "CHECKED": "").">&nbsp;{$nameCaller}&nbsp;&nbsp;&nbsp;";
+		}
+
+		$prior	= "";
+		for ($i = -10; $i <= 10 ; $i++) { 
+			//$prior	.= "<input type='checkbox' value='{$i}' name='prior[]' ".(in_array($i, $task['prior']) !== true? "CHECKED": "").">&nbsp;{$i}&nbsp;&nbsp;&nbsp;";
+			$prior .= "<option value='{$i}' ".($i == $task['prior']? "SELECTED": "").">{$i}</option>";
+		}
+
+		$pattern->set_var("CALLERS", $callers);
+		$pattern->set_var("PRIOR", $prior);
+		$pattern->set_var("SMS_ENABLE_YES", ($task['sms_enable'] == 1? "SELECTED": ""));
+		$pattern->set_var("SMS_ENABLE_NO", ($task['sms_enable'] == 0? "SELECTED": ""));
+		$pattern->set_var("EMAIL_ENABLE_YES", ($task['email_enable'] == 1? "SELECTED": ""));
+		$pattern->set_var("EMAIL_ENABLE_NO", ($task['email_enable'] == 0? "SELECTED": ""));
+		$pattern->set_var("SMS_TEXT", $task['sms_text']);
+		$pattern->set_var("EMAIL_TEXT", $task['email_text']);
+		$pattern->set_var("ID", $task['id']);
+		$pattern->set_var("COMMENT", $task['comment']);
+		$pattern->set_var("VIEW", $task['view']);
+		$pattern->set_var("SLEEP", $task['sleep']);
+		$pattern->set_var("TIMEFROM", $task['timefrom']);
+		$pattern->set_var("TIMETO", $task['timeto']);
+		$pattern->set_var("CLIENTS", $this->getClients($task['client_id']));
+		$pattern->set_var("SOUND", "http://easyring24.com/task/edit/{$task['id']}/sound");
+		$pattern->set_var("EMAIL_NOTIFY", $task['email_notify']);
+		$pattern->set_var("URL_NOTIFY", $task['url_notify']);
+		$result	.= $pattern->result();
+	    }
+	    elseif (isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "view" && isset($_SESSION['PARAMS'][2]) && is_numeric($_SESSION['PARAMS'][2])) {
+
+		$task = $this->query->edit($_SESSION['PARAMS'][2]);
+
+		if (!(!empty($task) && count($task)>0))
+		    header("Location: /task");
+		    
+		if (isset($_SESSION['PARAMS'][3]) && $_SESSION['PARAMS'][3] == "sound") {
+		    $filename = $_SESSION['CONF']['DIRS']['SOUNDS'].$_SESSION['PARAMS'][2].".wav";
+
+		    header('Content-Description: File Transfer');
+		    header('Content-Type: audio/x-wav');
+		    header('Content-Disposition: attachment; filename=' . basename($filename));
+		    header('Content-Transfer-Encoding: binary');
+		    header('Expires: 0');
+		    header('Cache-Control: must-revalidate');
+		    header('Pragma: public');
+		    header('Content-Length: ' . filesize($filename));
+		    ob_clean();
+		    flush();
+		    readfile($filename);
+		    
+		    exit;
+		}
+		    
+
+	        $pattern	= new pattern('task/view');
+		$callers	= "";
+
+		$callersAll	= $this->query->getCallerList();
+		foreach ($callersAll as $c) {
+		    if (in_array($c['mark'], explode(",", $task['caller'])) !== false)
+			$callers .= '<span class="label label-default">'.$c['name'].'</span>';
+		}
+
+
+		$pattern->set_var("CALLERS", $callers);
+
+		$pattern->set_var("SMS_ENABLE", ($task['sms_enable'] == 1? "Отправлять": "Не отправлять"));
+		$pattern->set_var("EMAIL_ENABLE", ($task['email_enable'] == 1? "Отправлять": "Не отправлять"));
+		$pattern->set_var("SMS_TEXT", $task['sms_text']);
+		$pattern->set_var("EMAIL_TEXT", $task['email_text']);
+		$pattern->set_var("ID", $task['id']);
+		$pattern->set_var("COMMENT", $task['comment']);
+		$pattern->set_var("SLEEP", $task['sleep']);
+		$pattern->set_var("TIMEFROM", $task['timefrom']);
+		$pattern->set_var("TIMETO", $task['timeto']);
+		$pattern->set_var("PRIOR", $task['prior']);
+		$result	.= $pattern->result();
+	    }
+	    else if (isset($_SESSION['PARAMS'][0]) && $_SESSION['PARAMS'][0] == "task"){
+		$all = isset($_SESSION['PARAMS'][1]) && $_SESSION['PARAMS'][1] == "all"? true: false;
+		$tasks = $this->query->listTask($all);
+
+	        $pattern	= new pattern('task/list_header');
+		$result	.= $pattern->result();
+
+		if (!empty($tasks) && count($tasks) > 0) {
+		    foreach ($tasks as $t) {
+			$pattern	= new pattern('task/list_row');
+		        $pattern->set_var("DATEADD", date("d.m.Y H:i:s", strtotime($t['dateadd'])));
+			$pattern->set_var("DATESTOP", (is_null($t['datestop'])? "": date("d.m.Y H:i:s", strtotime($t['datestop']))));
+		        $pattern->set_var("STATE", $this->_viewState($t['state']));
+			$pattern->set_var("CHANNEL", ($t['comment'] != ""? $t['comment']."<BR/>": "").$this->_viewChannel($t['caller']));
+			$pattern->set_var("METHOD", $this->_viewMethod($t['sms_enable'], $t['email_enable']));
+		        $pattern->set_var("STATUS", $this->_viewStatus($t['total'], $t['send']));
+		    $pattern->set_var("PRIOR", $t['prior']);
+
+			$response = '<a href="/task/response/'.$t['id'].'" class="btn btn-xs btn-default" style="margin-right: 1px" title="Просмотр откликов"><span class="glyphicon glyphicon-chevron-right" aria-hidden="true"></span></a>';
+			$response .= '<a href="/task/view/'.$t['id'].'" class="btn btn-xs btn-default" style="margin-right: 1px" title="Параметры задачи"><span class="glyphicon glyphicon-info-sign" aria-hidden="true"></span></a>';
+
+			if (in_array($t['state'], ['pause','delete','send','stop'])) {
+				$response .= '<a href="/task/edit/'.$t['id'].'" class="btn btn-xs btn-default" style="margin-right: 1px" title="Изменить задачу"><span class="glyphicon glyphicon-pencil" aria-hidden="true"></span></a>';
+			}
+			
+			if ($t['state'] == "current")
+			    $response .= '<a href="/task/pause/'.$t['id'].'" class="btn btn-xs btn-default" title="Остановить задачу"><span class="glyphicon glyphicon-pause" aria-hidden="true"></span></a>';
+			elseif ($t['state'] == "pause" || $t['state'] == "stop")
+			    $response .= '<a href="/task/start/'.$t['id'].'" class="btn btn-xs btn-default" title="Возобновить задачу"><span class="glyphicon glyphicon-play" aria-hidden="true"></span></a>';
+			elseif ($t['state'] == "new")
+		    	    $response .= '<a href="/task/edit/'.$t['id'].'" class="btn btn-xs btn-default" title="Изменить задачу"><span class="glyphicon glyphicon-pencil" aria-hidden="true"></span></a>';
+			else
+			    $response .= '<a href="/task/doubling/'.$t['id'].'" class="btn btn-xs btn-default" title="Дублирование задачи"><span class="glyphicon glyphicon-copy" aria-hidden="true"></span></a>';
+			    
+			if ($t['state'] != "stop") {
+			    $response .= '<a href="/task/pause/'.$t['id'].'" class="btn btn-xs btn-default" title="Пауза"><span class="glyphicon glyphicon-pause" aria-hidden="true"></span></a>';
+			    $response .= '<a href="/task/stop/'.$t['id'].'" class="btn btn-xs btn-default" title="Остановить задачу"><span class="glyphicon glyphicon-stop" aria-hidden="true"></span></a>';
+			}
+			$pattern->set_var("BUTTONS", $response);
+			
+			$result	.= $pattern->result();
+		    }
+		}
+		else {
+	    	    $pattern	= new pattern('task/list_nofound');
+		    $result	.= $pattern->result();
+		}
+
+	        $pattern	= new pattern('task/list_footer');
+		$result	.= $pattern->result();
+	    }
+	    else {
+		$result = "@@@@";
+	    }
+
+	    return $result;
+	}
+
+	function _viewState($state) {
+	    switch ($state) {
+		case 'new': return '<span class="label label-default">Новый</span>';
+		case 'current': return '<span class="label label-warning">В процессе</span>';
+		case 'send': return '<span class="label label-success">Выполнено</span>';
+		case 'delete': return '<span class="label label-danger">Удалено</span>';
+		case 'pause': return '<span class="label label-default">Пауза</span>';
+		case 'stop': return '<span class="label label-danger">Остановлено</span>';
+		case 'start': return '<span class="label label-default">Возобновлено</span>';
+	    }
+	}
+
+	function _viewRingState($state) {
+	    switch ($state) {
+		case 'ANSWERED': return '<span class="label label-success">Поднята трубка</span>';
+		case 'BUSY': return '<span class="label label-warning">Номер занят</span>';
+		case 'FAILED': return '<span class="label label-danger">Номер не существует</span>';
+		case 'NO ANSWER': return '<span class="label label-default">Трубка не снята</span>';
+		case '': return '<span class="label label-default">Неизвестно</span>';
+	    }
+	}
+
+	function _viewYesNo($state) {
+	    switch ($state) {
+		case 'Y': return '<span class="label label-success">Да</span>';
+		case 'F': return '<span class="label label-danger">В черном списке</span>';
+		case 'N': return '<span class="label label-default">Нет</span>';
+	    }
+	}
+
+	function _viewChannel($channel) {
+	    $result = "";
+
+	    foreach ($this->query->getCallerList() as $caller) {
+		if (in_array($caller['mark'], explode(",", $channel)) !== false)
+		    $result .= '<span class="label label-success">'.$caller['name'].'</span><br/>';
+	    }
+
+	    return $result;
+	}
+
+	function _viewStatus($total, $send) {
+	    $result = "";
+	    if (is_null($total)) {
+		$result .= '<span class="label label-default">База не загружена</span>';
+	    }
+	    else {
+		$result .= '<div class="progress" style="margin-bottom: 0px">'."\n";
+	        $result .= '<div class="progress-bar progress-bar-success progress-bar-striped" role="progressbar" aria-valuenow="'.sprintf("%.2f", ($total == 0? 0: $send/$total*100)).'" aria-valuemin="0" aria-valuemax="100" style="width: '.sprintf("%.0f", ($total == 0? 0: $send/$total*100)).'%">'."\n";
+		$result .= sprintf("%.2f", ($total == 0? 0: $send/$total*100)).'%'."\n";
+	        $result .= '</div>'."\n";
+		$result .= '</div>'."\n";
+	    }
+	    return $result;
+	}
+
+	function _viewMethod($sms, $email) {
+	    return '<span class="label label-'.($sms == 0? "danger": "success").'">SMS</span>&nbsp;<span class="label label-'.($email == 0? "danger": "success").'">Email</span>';
+	}
+
+
+	function getTaskForProcessing($current) {
+	    $temp = array();
+
+	    if (!empty($current) && count($current) > 0)
+	    	foreach ($current as $c)
+			$temp = array_merge($temp, explode(",", $c['caller']));
+
+	    return $this->query->getTaskForProcessing((!empty($temp) && count($temp) > 0? "t.caller not like '%".implode("%' OR t.caller not like '%", $temp)."%'": ""));
+	}
+
+	function updateTaskState($id, $state) {
+	    return $this->query->updateTaskState($id, $state);
+	}
+
+	function getBase($id, $count = 50) {
+	    return $this->query->getBase($id, $count);
+	}
+
+	function updateBaseSend($id, $send) {
+	    return $this->query->updateBaseSend($id, $send);
+	}
+
+	function updateTaskSend($id, $count) {
+	    return $this->query->updateTaskSend($id, $count);
+	}
+
+	function getCurrentTask() {
+	    return $this->query->getCurrentTask();
+	}
+
+	function getCurrentTask2() {
+	    return $this->query->getCurrentTask2();
+	}
+
+	function getContact($id, $phone) {
+	    return $this->query->getContact($id, $phone);
+	}
+
+	function pressButtonContact($ids, $phone) {
+	    foreach ($ids as $id) {
+		file_put_contents("/home/easyring/web/easyring24.com/tasks/log.log", $id." - ".$phone."\n", FILE_APPEND);
+		if ($this->query->issetContant($id, $phone)) {
+	    		$this->query->pressButtonContact($id, $phone);
+			return $this->editCron($id);
+		}
+	    }
+	}
+
+	function pressButtonContact2($ids, $phone) {
+	    foreach ($ids as $id)
+		if ($this->query->issetContant2($id, $phone)) {
+	    		$this->query->pressButtonContact($id, $phone);
+			return $this->editCron($id);
+		}
+	}
+
+	function getNoStateTaskBase($id) {
+	    return $this->query->getNoStateTaskBase($id);
+	}
+
+	function getAskeriskRingState($phone, $date) {
+	    return $this->query->getAskeriskRingState($phone, $date);
+	}
+
+	function updateRingState($info, $state) {
+	    return $this->query->updateRingState($info, $state);
+	}
+
+	function getRingInfo($id) {
+	    return $this->query->getRingInfo($id);
+	}
+
+	function editCron($id) {
+	    return $this->query->editCron($id);
+	}
+
+	function isCallerActive($mark) {
+	    return $this->query->isCallerActive($mark);
+	}
+
+	function isBlackPhone($phone, $client = 0) {
+	    $total = $this->query->isBlackPhone($phone, $client);
+	    return ($total['total'] == 0? false: true);
+	}
+
+	function isBlackPhone_man($phone) {
+	    $total = $this->query->isBlackPhone_man($phone);
+	    return ($total['total'] == 0? false: true);
+	}
+
+	function getCallerList() {
+	    $rowset = $this->query->getCallerList();
+
+	    foreach ($rowset as $row)
+		$result[$row['mark']] = $row['sound'];
+	    return $result;
+	}
+
+	function callerInfo($mark) {
+	    return $this->query->callerInfo($mark);
+	}
+
+	function userTimezone($uid) {
+	    return $this->query->userTimezone($uid);
+	}
+
+	function addActiveState($cid, $state) {
+	    return $this->query->addActiveState($cid, $state);
+	}
+
+	function getListResponseOnlyInterest($id, $page = 0, $count = 100000) {
+	    return $this->query->getListResponseOnlyInterest($id, $page, $count);
+	}
+
+	function getListResponse($id, $page = 0, $count = 100000) {
+	    return $this->query->getListResponse($id, $page, $count);
+	}
+
+	function getID($hash) {
+	    return $this->query->getID($hash);
+	}
+
+	function getIDapi($hash) {
+	    return $this->query->getIDapi($hash);
+	}
+
+	function getTasksByClient($client_id) {
+	    return $this->query->getTasksByClient($client_id);
+	}
+
+	function getClientName($client_id) {
+	    return $this->query->getClientName($client_id);
+	}
+
+	function getListResponseStat($id) {
+	    return $this->query->getListResponseStat($id);
+	}
+
+	function getClients($id) {
+	    $option = "";
+	    $option .= "<option value='0'>Не выбрано</option>";
+	    foreach ($this->query->getClients() as $row)
+		$option .= "<option value='{$row['id']}' ".($id == $row['id']? "SELECTED": "").">{$row['name']}</option>";
+	    return $option;
+	}
+	
+	function getMaxDateadd() {
+        return $this->query->getMaxDateadd();
+    }
+
+	function updateMaxId($max_id, $user_id) {
+        return $this->query->updateMaxId($max_id, $user_id);
+    }
+        
+    function getIdNotif() {
+        return $this->query->getIdNotif();
+    }
+        
+    function getNotifTask($id) {
+        return $this->query->getNotifTask($id);
+    }
+
+    }
+
+?>

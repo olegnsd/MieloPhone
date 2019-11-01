@@ -1,0 +1,78 @@
+/* = Общие стили
+************************/
+
+a {text-decoration: none;}
+
+/* =Стили для header'а
+************************/
+
+body{padding:0 0 50em 0; font-family: sans-serif;}
+.header{border-bottom:5px solid #639;background-color:#1e1e1e;height:60px}
+.header .wrap{max-width:1300px;position:relative;margin:0 auto}
+.header .logo{display:inline-block;line-height:60px;height:60px;padding:0 0 0 25px;width:200px;font-size:20px;color:#ed0;position:relative;z-index:1;font-weight:700;text-transform:uppercase;background-color:#639;overflow:hidden;text-shadow:#5a2d87 1px 1px,#5a2d87 2px 2px,#5a2d87 3px 3px,#5a2d88 4px 4px,#5b2d88 5px 5px,#5b2d88 6px 6px,#5b2d89 7px 7px,#5b2d89 8px 8px,#5b2d89 9px 9px,#5c2e8a 10px 10px,#5c2e8a 11px 11px,#5c2e8a 12px 12px,#5c2e8a 13px 13px,#5c2e8b 14px 14px,#5d2e8b 15px 15px,#5d2e8b 16px 16px,#5d2e8c 17px 17px,#5d2e8c 18px 18px,#5d2e8c 19px 19px,#5e2f8d 20px 20px,#5e2f8d 21px 21px,#5e2f8d 22px 22px,#5e2f8d 23px 23px,#5e2f8e 24px 24px,#5f2f8e 25px 25px,#5f2f8e 26px 26px,#5f2f8f 27px 27px,#5f2f8f 28px 28px,#5f2f8f 29px 29px,#603090 30px 30px,#603090 31px 31px,#603090 32px 32px,#603090 33px 33px,#603091 34px 34px,#613091 35px 35px,#613091 36px 36px,#613092 37px 37px,#613092 38px 38px,#613092 39px 39px,#623193 40px 40px,#623193 41px 41px,#623193 42px 42px,#623193 43px 43px,#623194 44px 44px,#633194 45px 45px,#633194 46px 46px,#633195 47px 47px,#633195 48px 48px,#633195 49px 49px,#643296 50px 50px,#643296 51px 51px,#643296 52px 52px,#643296 53px 53px,#643297 54px 54px,#653297 55px 55px,#653297 56px 56px,#653298 57px 57px,#653298 58px 58px,#653298 59px 59px,#639 60px 60px}
+.header .logo small{position:absolute;top:40px;right:10px;color:#fff;text-transform:uppercase;font-size:13px;line-height:1}
+@media screen{.header .logo{transition:color 0.3s}.header .logo:hover{color:#ffef22}}
+
+.header .back-to-article{display:inline-block;position:absolute;top:50%;right:15px}
+.header .back-to-article{color:#fff;font-weight:400;font-size:16px;padding:8px 10px 7px;position:absolute;top:50%;right:0;-webkit-transform:translateY(-50%);transform:translateY(-50%)}
+@media screen{.header .back-to-article{transition:background-color 0.3s,color 0.3s}.header .back-to-article:hover{background-color:rgba(102,51,153,0.4);color:#ed0}}
+@media screen and (max-width: 1300px){.header .back-to-article{right:15px}}
+@media screen and (max-width: 400px){.header .back-to-article{padding:8px 5px 7px;font-size:24px}.header .back-to-article span{display:none}}
+
+/* Main	*/
+#main {
+	width: 94%;
+	padding: 1% 3%;
+}
+#main h2 { 
+	text-align: center;
+	font: 2.2em Helvetica, Arial; 
+	margin: 20px 0 10px 0;
+	padding-bottom: 15px;
+	border-bottom: 2px solid #444444; 
+}
+.phone_form {
+	width: 300px;
+	margin: 50px auto;
+	position: relative;
+}
+.user-phone {
+	width: 300px;
+	box-sizing: border-box;
+	-webkit-box-sizing: border-box;
+	-moz-box-sizing: border-box;
+	/*padding: 8px 8px 8px 36px;*/
+	padding: 8px 8px 8px 8px;
+	height: 40px;
+	border: 1px solid #ccc;
+	font-size: 16px;
+	color: #363636;
+}
+.user-phone:focus {
+	outline: none;
+	border-color: #363636;
+}
+input.user-phone:-moz-placeholder {
+	color: #363636;
+}
+input.user-phone::-webkit-input-placeholder {
+	color: #363636;
+}
+.btn_submit {
+	height: 30px;
+	position: absolute;
+	top: 5px;
+	right: 5px;
+	background: #363636;
+	color: #fff;
+	border: none;
+	width: 120px;
+	cursor: pointer;
+	transition: all 0.5s;
+	-webkit-transition: all 0.5s;
+	-moz-transition: all 0.5s;
+}
+.btn_submit[disabled] {
+	color: #363636;
+	background: #ccc;
+}
